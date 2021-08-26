@@ -1,0 +1,269 @@
+rm(list=ls())
+#Read in Files####
+library("ggrepel")
+library(dplyr)
+library(data.table)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+library(ape)
+library(dendextend)
+library(phylogram)
+library(reticulate)
+library(viridis)
+library("cowplot")
+library(gridExtra)
+library(ggtree)
+library(dendextend)
+library(treeio)
+library(phytools)
+library(ggtreeExtra)
+devtools::install_github("cmt2/RevGadgets") #normal install of revgadgets does not work!
+library(ggnewscale)
+library(phangorn)
+#Some packages may need installing if you do not have them first
+#Read in files and merge datasets####
+a<-read.csv("tPCA_all_vases.csv")
+names(a)<-c("id", paste("PC", 1:100, sep=""))
+b<-read.csv("amphorae_with_karchers_20072021.csv")
+b<-b%>%select(ï..id, shape_generic_specific, fabric_general_region, fabric_style_3, Midpoint)%>%
+  unique()
+b$'Vase Age' <- round(as.numeric(b$Midpoint, 2))
+b$id <- b$ï..id
+b$Shape <- as.factor(b$shape_generic_specific)
+a1<-merge(a, b, by.x="id", by.y="id")
+
+#Make PC axes plot in pdf####
+ggplot(a1, aes(x=PC1, y=PC2, colour=`Vase Age`, label=id))+
+  geom_text_repel(data=subset(a1, PC2 > 1.5), size=5)+
+  geom_point(size=3.24, alpha=0.9, aes(shape=Shape))+
+  scale_color_viridis()+
+  theme_classic()+
+  labs(colour="Age (BCE)")+
+  theme(text = element_text(size=18))->axesplot
+
+#Read in variance explained data####
+c<-read.csv("cumvar.csv")
+#Make plot for  cumulative variance explained####
+c %>% ggplot(aes( x=PC, y=cum_var)) + 
+  geom_point(colour="red", size=1.5) + 
+  geom_line() +
+  xlab("Number of Components")+
+  ylab("Cumulative Variance Explained")+
+  theme_classic()+
+  theme(text = element_text(size=18))-> screeplot
+
+
+
+#read in all the OU log files####
+t1 <- read.beast("OUv1.nex")
+t5 <- read.beast("OUv5.nex")
+t10 <- read.beast("OUv10.nex")
+t15 <- read.beast("OUv15.nex")
+t20 <- read.beast("OUv20.nex")
+t25 <- read.beast("OUv25.nex")
+t30 <- read.beast("OUv30.nex")
+t35 <- read.beast("OUv35.nex")
+t50 <- read.beast("OUv50.nex")
+t60 <- read.beast("OUv60.nex")
+t70 <- read.beast("OUv70.nex")
+t80 <- read.beast("OUv80.nex")
+t90 <- read.beast("OUv90.nex")
+t100 <- read.beast("OUv100.nex")
+
+#Get RF distances between trees####
+
+#RF.dist(t10@phylo, t70@phylo) #could probably speed up witha loop 
+#Changed this for every possible pairing and then used the data to make matrix below
+
+
+mat.data <- c(0,12,10,4,6,4,4,4,4,4,4,4,4,12,0,10,12,14,12,12,12,12,12,12,12,12,10,10,0,10,12,10,10,10,10,10,10,10,10,
+              4,12,10,0,2,0,0,0,0,0,0,0,0,
+              6,14,12,2,0,2,2,2,2,2,2,2,2,
+              4,12,10,0,2,0,0,0,0,0,0,0,0,
+              4,12,10,0,0,0,0,0,0,0,0,0,0,
+              4,12,10,0,2,0,0,0,0,0,0,0,0,
+              4,12,10,0,2,0,0,0,0,0,0,0,0,
+              4,12,10,0,2,0,0,0,0,0,0,0,0,
+              4,12,10,0,2,0,0,0,0,0,0,0,0,
+              4,12,10,0,2,0,0,0,0,0,0,0,0,
+              4,12,10,0,2,0,0,0,0,0,0,0,0)
+mat1 <- matrix(mat.data,nrow=13,ncol=13,byrow=TRUE)
+
+colnames(mat1) <- c("5PC", "10PC", "15PC", "20PC", "25PC", "30PC", "35PC", "50PC", "60PC", "70PC", "80PC", "90PC", "100PC")
+
+#make heatmap####
+mat1 %>% 
+  as.data.frame() %>%
+  rownames_to_column("f_id") %>%
+  pivot_longer(-c(f_id), names_to = "samples", values_to = "counts") %>%
+  mutate(samples= fct_relevel(samples,colnames(mat1))) %>%
+  mutate(f_id= fct_relevel(f_id,colnames(mat1))) %>% 
+  ggplot(aes(x=samples, y=f_id, fill=counts)) + 
+  geom_raster() + 
+  scale_fill_continuous(low = "yellow2", high = "indianred2")+
+  labs(fill="RF Dist")+
+  xlab(NULL)+
+  ylab(NULL)+
+  theme(text = element_text(size=18))->heatmap
+#create df to use for posterior probability dat####
+df <- data.frame(PC=character(13),
+                 AveragePP=double(13),
+                 stringsAsFactors=FALSE)
+#make vector of mean average posterior probabilities with each trait amount
+pps <- c(mean(na.omit(t5@data$posterior)),
+         mean(na.omit(t10@data$posterior)),
+         mean(na.omit(t15@data$posterior)),
+         mean(na.omit(t20@data$posterior)),
+         mean(na.omit(t25@data$posterior)),
+         mean(na.omit(t30@data$posterior)),
+         mean(na.omit(t35@data$posterior)),
+         mean(na.omit(t50@data$posterior)),
+         mean(na.omit(t60@data$posterior)),
+         mean(na.omit(t70@data$posterior)),
+         mean(na.omit(t80@data$posterior)),
+         mean(na.omit(t90@data$posterior)),
+         mean(na.omit(t100@data$posterior)))
+
+numberofpcs <- c(5,10,15,20,25,30,35,50,60,70,80,90,100)
+#loops to add posteriors to dataframe
+for(i in 1:13){
+  df$AveragePP[i] <-pps[i]
+}
+
+for(i in 1:13){
+  df$PC[i] <-numberofpcs[i]
+}
+
+#make posterior probability plot####
+df %>% ggplot(aes(x=as.numeric(PC), y=AveragePP))+
+  geom_point(colour="red")+
+  geom_line()+
+  theme_classic()+
+  xlab("Number of Principal Components")+
+  ylab("Average Posterior Node Probability")+
+  scale_x_continuous(breaks=c(10, 20, 30, 40, 50, 60, 70,80,90,100))+
+  scale_y_continuous(breaks=c(0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8))+
+  theme(text = element_text(size=18))-> ppplot
+
+#combine graphs into single plot####
+plot_grid(axesplot,ppplot, screeplot,heatmap, labels =c("A)", "B)", "C)", "D)"))-> pcplot
+
+#Trace Plots Using Code from RevBayes tutorial####
+#t<- read.beast(file="pBMv30.nex")
+#t<- read.beast(file="OUv30.nex")
+#t<- read.beast(file="relaxed_OU30.tre")
+#t<- read.beast(file="relaxed_BM_MCC30.nex")
+#t<- read.beast(file="ffrelaxed_BM_MCC30.nex")
+t<- read.beast(file="fossilbigf.tre")
+t2 <- read.beast(file="fossilrbm.tre")
+
+#I read in each file as t and proceed to follow the steps below, code mainly from Armand Leroi on visualising tree
+d$id <- d$ï..id  #when I save this file in R the id column is a bit weird, so fixed that
+#rearrange data
+d1<-d%>%
+  select(id,fabric_general_region, shape_generic_specific, earliest_date, latest_date, painter_group)%>%
+  unique()%>%
+  mutate(mid_date=(earliest_date+latest_date)/2)%>%
+  mutate(mid_date=round(mid_date,0))%>%
+  mutate(painter_group=ifelse(fabric_general_region=="italy_south_apulia", "italy_south_apulia", painter_group))%>%
+  mutate(shape=gsub("amphora_", "", shape_generic_specific))%>%
+  mutate(shape=toupper(shape))%>%
+  mutate(date_range=paste(earliest_date, latest_date, sep=":"))%>%
+  mutate(newlabel=paste(id, painter_group))%>%
+  select(id, shape_generic_specific, painter_group, newlabel)%>%
+  as.data.frame()
+#this is to move the tip label data
+oldlabel<-t@phylo$tip.label
+l<-as.data.frame(oldlabel)
+l<-l%>%
+  mutate(order=1:nrow(l))
+l<-merge(l, d1, by.x="oldlabel", by.y="id")
+l<-l%>%
+  arrange(order)
+
+
+#now make a vector of new labels and put them in our tree file
+t@phylo$tip.label<-l$newlabel
+
+s<-t@phylo%>%as_tibble()%>%
+  select(node, label)
+s1<-merge(s, l, by.x="label",by.y="newlabel")%>%
+  arrange(node)
+painter <-c(s1$painter_group,  rep("", 116)) #116 should be changed to match with the number of tips in our tree
+shape<-c(s1$shape_generic_specific, rep("", 116)) #this line can be removed, only used it for my final tree to get the outer ring
+t@data<-t@data%>%as_tibble()%>%
+  arrange(as.numeric(node))%>%
+  mutate(shape=shape, painter=painter)
+
+t1<-t@data%>%as_tibble()%>%
+  mutate(posterior=as.numeric(posterior))%>%
+  mutate(posterior=ifelse(as.numeric(posterior)>=0.5, as.numeric(posterior), ""))%>%
+  mutate(posterior=round(as.numeric(posterior),2))
+t@data$posterior<-t1$posterior
+t@data$branchrates <- t2@data$branch_rates #RevBayes cannot estimate branch rates whilst reconstructing topology, therefore I read in the consensus tree of the relaxed model as a fixed topology to obtain branch rates and then I put those branch rates onto my original tree, this was done so I have the posterior probabilties as otherwise they would all be 1.
+
+pal<-c("indianred2", "indianred4", "darkgoldenrod4", "grey50") #colour palette
+#code for display tree, if you do not want to plot a relaxed tree with coloured branches, the argument can be changed
+ggtree(t, layout="circular",size=0.75, aes(color=branchrates))+
+  labs(colour="Branch Rates")+
+  scale_color_gradientn(colours = rainbow(5))+
+  new_scale_colour()+
+  #geom_tiplab(size=2.5, hjust=-0.05,aes(colour=as.factor(shape)))+
+  geom_tippoint(size=1.7, aes(colour=as.factor(shape)))+
+  scale_colour_manual(values=pal)+
+  #geom_nodelab(aes(label=posterior), size=2.25, fontface = "bold", nudge_y = 0.3, nudge_x=-0.1)+ this line would normally be used but for said tree, the nodes were too small to be displayed on the tree
+  labs(colour="Shape")+
+  new_scale_color()+
+  scale_fill_brewer(palette="Paired")+
+  geom_fruit(
+    geom=geom_tile,
+    mapping=aes(fill=painter),
+    width=15,
+    offset =0.045)+theme(
+      legend.title=element_text(size=12), 
+      legend.text=element_text(size=10),
+      legend.spacing.y = unit(0.01, "cm"))+
+  labs(fill="Painter Group")
+
+#Use RevGadgets to make trace plots
+#read in log files
+simple_OU_posterior <- readTrace("OUv1.log")[[1]]
+simple_OU_posterior30 <- readTrace("OUv30.log")[[1]]
+simple_OU_posterior50 <- readTrace("OUv50.log")[[1]]
+simple_OU_posterior100 <- readTrace("OUv100.log")[[1]]
+#merge parameters from different traces to the first one
+simple_OU_posterior$'Alpha 1 PC' <- simple_OU_posterior$alpha
+simple_OU_posterior$'Alpha 50 PC' <- simple_OU_posterior50$alpha
+simple_OU_posterior$'Alpha 100 PC' <- simple_OU_posterior100$alpha
+simple_OU_posterior$'Alpha 30 PC'<- simple_OU_posterior30$alpha
+
+simple_OU_posterior$'Theta 1 PC' <- simple_OU_posterior$theta
+simple_OU_posterior$'Theta 50 PC' <- simple_OU_posterior50$theta
+simple_OU_posterior$'Theta 100 PC' <- simple_OU_posterior100$theta
+simple_OU_posterior$'Theta 30 PC'<- simple_OU_posterior30$theta
+
+simple_OU_posterior$sigma2_50 <- simple_OU_posterior50$sigma2
+simple_OU_posterior$sigma2_100 <- simple_OU_posterior100$sigma2
+simple_OU_posterior$sigma2_30 <- simple_OU_posterior30$sigma2
+#create 3 separate plots and then merge together
+sigmaplot<-plotTrace(list(simple_OU_posterior), vars=c("sigma2","sigma2_30", "sigma2_50", "sigma2_100"))[[1]]
+alphaplot<-plotTrace(list(simple_OU_posterior), vars=c("Alpha 1 PC", "Alpha 30 PC", "Alpha 50 PC", "Alpha 100 PC"))[[1]]
+thetaplot<-plotTrace(list(simple_OU_posterior), vars=c("Theta 1 PC", "Theta 30 PC", "Theta 50 PC", "Theta 100 PC"))[[1]]
+plot_grid(sigmaplot, alphaplot, thetaplot, nrow=1, ncol=3)->traceplot
+
+
+#Code for plotting vase images
+#("indianred2", "indianred4", "darkgoldenrod4", "grey50")
+#Pick the specific vase wanted with the id filter and plot each of the points, I coloured them manually using the same 
+#palette as the trees
+d %>%  filter(id == "302220") %>% ggplot(aes(x=x, y=y, group=as.factor(id)))+
+  geom_polygon(size=0.1, fill="indianred4")+
+  ylim(-2,2)+
+  xlim(-2,2)+
+  facet_wrap(~id, ncol=22)+
+  theme_void()+
+  theme(aspect.ratio = 1)
+ggsave(filename = "302220.pdf",width = 100, height = 100, dpi = 300, units = "cm", device='pdf')
+
+#
